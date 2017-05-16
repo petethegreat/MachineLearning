@@ -10,9 +10,10 @@ output:
 
 load data
 ```{r}
-training<-read.csv('./data/pml-training.csv',stringsAsFactors=TRUE,na.strings = "#DIV/0!")
+training<-read.csv('./data/pml-training.csv',stringsAsFactors=TRUE,na.strings = c("#DIV/0!","NA"))
 dim(training)
-str(training)
+str(training,list.len=ncol(training))
+training$cvtd_time<-strptime(training$cvtd_timestamp,format = "%d/%m/%Y %H:%M")
 ```
 
 ## tidying
