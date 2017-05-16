@@ -1,0 +1,34 @@
+---
+title: "Machine Learning Project"
+output:
+  html_document:
+    mathjax: "https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-AMS-MML_HTMLorMML"
+  pdf_document:
+    toc: true
+---
+
+
+load data
+```{r}
+training<-read.csv('./data/pml-training.csv',stringsAsFactors=TRUE,na.strings = "#DIV/0!")
+dim(training)
+str(training)
+```
+
+## tidying
+write a function to do this, as we will need to tidy the test data also
+cvtd timestamp -> to date
+ $ max_roll_belt 
+  max_picth_belt 
+  min_roll_belt   
+  min_pitch_belt
+amplitude_roll_belt   
+A bunch of others
+
+set things to missing, impute the missing values
+
+Then procede
+
+
+
+
