@@ -32,6 +32,14 @@ set things to missing, impute the missing values
 Then procede
 
 ```{r}
+na_list<-sapply(training,function(x) { sum(is.na(x))})
+good<- na_list < 1900
+slimmed<-training[good]
+str(slimmed)
+```
+
+
+```{r}
 library(ggplot2)
 library(caret)
 ```
@@ -41,10 +49,24 @@ library(caret)
 We'll try a glm (binomial) model (logit). Maybe this does a bunch of models?
 make sure we do the preprocessing within the `train` statement, or else it messes up cross validation (We should split the data into folds and conduct PCA within each fold, rather than transforming via PCA and then splitting). 
 
+
+## basic tree
+get rid of cvtd timestamp first
+add cross validaation to this
+
+```{r]}
+slim2<-slimmed[-5]
+treefit<-train(classe ~ . , data=slim2, method='rpart')
+treefit
+treefit$finalModel
+```
+<!-- library(devtools) -->
+<!-- install_bitbucket("mkuhn/parallelRandomForest", ref="parallelRandomForest") -->
+
 ```{r}
-tr_c<-trainControl(method="cv",preProcOptions = list(thresh = 0.9))
-model_glm<-train(classe~.,data=training,method='glm',family='binomial',train_control=tr_c,preProcess=c('pca','knnImpute'))
-summary(model_glm)
+# tr_c<-trainControl(method="cv",preProcOptions = list(thresh = 0.9))
+# model_glm<-train(classe~.,data=slimmed,method='glm',family='binomial',train_control=tr_c,preProcess=c('pca','knnImpute'))
+# summary(model_glm)
 ```
 
 
