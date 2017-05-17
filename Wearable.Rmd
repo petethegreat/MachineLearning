@@ -7,15 +7,36 @@ output:
     toc: true
 ---
 
+load caret and ggplot2
 
+```{r packages}
+opts_chunk$set(fig.width=8, fig.height=8,dpi=144)
+require(ggplot2)
+require(dplyr)
+require(caret)
+require(ranger)
+```
 load data
 
-```{r}
+```{r loaddata,cache=TRUE}
 training<-read.csv('./data/pml-training.csv',stringsAsFactors=TRUE,na.strings = c("#DIV/0!","NA"))
 dim(training)
-str(training,list.len=ncol(training))
+#str(training,list.len=ncol(training))
 # training$cvtd_time<-strptime(training$cvtd_timestamp,format = "%d/%m/%Y %H:%M",list=FALSE)
 ```
+
+
+## Timestamps
+classe is correlated with time:
+
+```{r timecorr, dependson='loaddata', cache=TRUE}
+h<- ggplot(data=training,aes(x=raw_timestamp_part_1,y=classe,colour=classe)) + geom_point()
+print(h + scale_x_continuous(limits=c(1323084231,1323084370)))
+print(h + scale_x_continuous(limits=c(1323094900,1323095100)))
+```
+
+will want to strip irrelevant info, user, time, window stuff from training data.
+
 
 ## tidying
 write a function to do this, as we will need to tidy the test data also
@@ -31,18 +52,18 @@ set things to missing, impute the missing values
 
 Then procede
 
-```{r}
+```{r tidy, dependson='loaddata', cache=TRUE}
 na_list<-sapply(training,function(x) { sum(is.na(x))})
 good<- na_list < 1900
-slimmed<-training[good]
+nona<-training[good]
+# remove name, time, window info
+slimmed<-nona[,-(1:7)]
 str(slimmed)
 ```
 
 
-```{r}
-library(ggplot2)
-library(caret)
-```
+
+## some exploratory plots
 
 # glm
 
@@ -50,24 +71,72 @@ We'll try a glm (binomial) model (logit). Maybe this does a bunch of models?
 make sure we do the preprocessing within the `train` statement, or else it messes up cross validation (We should split the data into folds and conduct PCA within each fold, rather than transforming via PCA and then splitting). 
 
 
-## basic tree
-get rid of cvtd timestamp first
-add cross validaation to this
 
-```{r]}
-slim2<-slimmed[-5]
-treefit<-train(classe ~ . , data=slim2, method='rpart')
+
+## basic tree
+```{r rpart,cache=TRUE, dependson='tidy'}
+treefit<-train(classe ~ . , data=slimmed, method='rpart')
 treefit
 treefit$finalModel
+ggplot(treefit)
 ```
 <!-- library(devtools) -->
 <!-- install_bitbucket("mkuhn/parallelRandomForest", ref="parallelRandomForest") -->
+## random forest
+```{r ranger, cache=TRUE, dependson='tidy'}
+set.seed(5074491)
+# tr_c<-trainControl(method='repeatedcv',number=20,repeats=5,allowParallel=TRUE)
+tr_c<-trainControl(method='cv',number=10,allowParallel=TRUE) 
 
-```{r}
-# tr_c<-trainControl(method="cv",preProcOptions = list(thresh = 0.9))
+# 20 fold cross validation, repeated 5 times
+# can also select 'oob' for out of bag
+# model_ranger_nopca<-train(classe~.,data=slim2,method='ranger',trControl=tr_c)
+model_ranger<-train(classe ~ .  ,data=slimmed,method='ranger',trControl=tr_c,tuneGrid = expand.grid(mtry= c(5,10,20)),importance='impurity')
+ggplot(model_ranger)
+model_ranger
+model_ranger$finalModel
+# tr_c<-trainControl(method="cv",preProcOptions = list(thresh = 0.8))
 # model_glm<-train(classe~.,data=slimmed,method='glm',family='binomial',train_control=tr_c,preProcess=c('pca','knnImpute'))
 # summary(model_glm)
 ```
+Important variables
+
+```{r varimportance,cache=TRUE,dependson='ranger'}
+moose<-varImp(model_ranger)
+mostimport <- order(moose$importance$Overall,decreasing=TRUE)
+h<-ggpairs(data=slimmed,columns=mostimport[1:5],mapping=ggplot2::aes(colour = classe,alpha=0.1))
+print(h)
+```
+
+A second random forest, this time using repeated cross validation, and maybe some more variable samplings
+
+```{r ranger2, cache=TRUE, dependson='tidy'}
+set.seed(5074491)
+# tr_c<-trainControl(method='repeatedcv',number=20,repeats=5,allowParallel=TRUE)
+tr_c<-trainControl(method='repeatedcv',number=10,repeats=3,allowParallel=TRUE) 
+
+# 20 fold cross validation, repeated 5 times
+# can also select 'oob' for out of bag
+# model_ranger_nopca<-train(classe~.,data=slim2,method='ranger',trControl=tr_c)
+model_ranger2<-train(classe ~ .  ,data=slimmed,method='ranger',trControl=tr_c,tuneGrid = expand.grid(mtry= c(2,10,30)),importance='impurity')
+ggplot(model_ranger2)
+model_ranger2
+model_ranger2$finalModel
+# tr_c<-trainControl(method="cv",preProcOptions = list(thresh = 0.8))
+# model_glm<-train(classe~.,data=slimmed,method='glm',family='binomial',train_control=tr_c,preProcess=c('pca','knnImpute'))
+# summary(model_glm)
+varImp(ranger2)
+```
+
+## Actually PCA
+use some PCA preprocessing, maybe with another random forest
+
+also look into svm
+
+maybe one other model (gbm?) boosted decision tree?
+
+
+
 
 
 
