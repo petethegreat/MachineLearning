@@ -7,9 +7,11 @@ output:
     toc: true
 ---
 
+===============================
 load caret and ggplot2
 
-```{r packages}
+```{r packages, cache=FALSE}
+library(knitr)
 opts_chunk$set(fig.width=8, fig.height=8,dpi=144)
 require(ggplot2)
 require(dplyr)
@@ -112,6 +114,7 @@ A second random forest, this time using repeated cross validation, and maybe som
 
 ```{r ranger2, cache=TRUE, dependson='tidy'}
 set.seed(5074491)
+starttime<-Sys.time()
 # tr_c<-trainControl(method='repeatedcv',number=20,repeats=5,allowParallel=TRUE)
 tr_c<-trainControl(method='repeatedcv',number=10,repeats=3,allowParallel=TRUE) 
 
@@ -119,15 +122,44 @@ tr_c<-trainControl(method='repeatedcv',number=10,repeats=3,allowParallel=TRUE)
 # can also select 'oob' for out of bag
 # model_ranger_nopca<-train(classe~.,data=slim2,method='ranger',trControl=tr_c)
 model_ranger2<-train(classe ~ .  ,data=slimmed,method='ranger',trControl=tr_c,tuneGrid = expand.grid(mtry= c(2,10,30)),importance='impurity')
+endtime<-Sys.time()
+endtime - starttime
+```
+ranger2 stuff
+
+```{r ranger2stuff,cache=TRUE,dependson='ranger2' }
 ggplot(model_ranger2)
 model_ranger2
 model_ranger2$finalModel
 # tr_c<-trainControl(method="cv",preProcOptions = list(thresh = 0.8))
 # model_glm<-train(classe~.,data=slimmed,method='glm',family='binomial',train_control=tr_c,preProcess=c('pca','knnImpute'))
 # summary(model_glm)
-varImp(ranger2)
+varImp(model_ranger2)
 ```
 
+ranger3, random forest with pca
+
+```{r ranger3, cache=TRUE, dependson='tidy'}
+set.seed(5074491)
+starttime<-Sys.time()
+# tr_c<-trainControl(method='repeatedcv',number=20,repeats=5,allowParallel=TRUE)
+tr_c<-trainControl(method='repeatedcv',number=10,repeats=3,allowParallel=TRUE,preProcOptions = list(thresh = 0.8)) 
+model_ranger3<-train(classe ~ .  ,data=slimmed,method='ranger',trControl=tr_c,tuneGrid = expand.grid(mtry= c(2,4,8,10)),importance='impurity',preProcess='pca')
+endtime<-Sys.time()
+endtime - starttime
+```
+
+ranger3 stuff
+
+```{r ranger3stuff,cache=TRUE,dependson='ranger3' }
+ggplot(model_ranger3)
+model_ranger3
+model_ranger3$finalModel
+# tr_c<-trainControl(method="cv",preProcOptions = list(thresh = 0.8))
+# model_glm<-train(classe~.,data=slimmed,method='glm',family='binomial',train_control=tr_c,preProcess=c('pca','knnImpute'))
+# summary(model_glm)
+varImp(model_ranger3)
+```
 ## Actually PCA
 use some PCA preprocessing, maybe with another random forest
 
