@@ -12,7 +12,9 @@ load caret and ggplot2
 
 ```{r packages, cache=FALSE}
 library(knitr)
-opts_chunk$set(fig.width=8, fig.height=8,dpi=144)
+# opts_chunk$set(fig.width=8, fig.height=8,dpi=144)
+opts_chunk$set(fig.width=6, fig.height=6,dpi=108)
+
 require(ggplot2)
 require(dplyr)
 require(caret)
@@ -61,6 +63,9 @@ nona<-training[good]
 # remove name, time, window info
 slimmed<-nona[,-(1:7)]
 str(slimmed)
+inTrain<-createDataPartition(slimmed$classe,p=0.8,list=FALSE)
+slimtr<-slimmed[inTrain,]
+slimval<-slimmed[-inTrain,]
 ```
 
 
@@ -77,37 +82,57 @@ make sure we do the preprocessing within the `train` statement, or else it messe
 
 ## basic tree
 ```{r rpart,cache=TRUE, dependson='tidy'}
-treefit<-train(classe ~ . , data=slimmed, method='rpart')
+set.seed(5074491)
+starttime<-Sys.time()
+treefit<-train(classe ~ . , data=slimtr, method='rpart')
+endtime<-Sys.time()
+endtime - starttime
+```
+
+rpart performance
+
+```{r rpartstuff,cache=TRUE,dependson='rpart'}
 treefit
 treefit$finalModel
 ggplot(treefit)
+plot(treefit$finalModel)
+# confusionMatrix
+rpartpred<-predict(treefit,newdata=slimval,type='raw')
+confusionMatrix(data=rpartpred,reference=slimval$classe)
 ```
 <!-- library(devtools) -->
 <!-- install_bitbucket("mkuhn/parallelRandomForest", ref="parallelRandomForest") -->
 ## random forest
 ```{r ranger, cache=TRUE, dependson='tidy'}
 set.seed(5074491)
+starttime<-Sys.time()
 # tr_c<-trainControl(method='repeatedcv',number=20,repeats=5,allowParallel=TRUE)
 tr_c<-trainControl(method='cv',number=10,allowParallel=TRUE) 
 
 # 20 fold cross validation, repeated 5 times
 # can also select 'oob' for out of bag
 # model_ranger_nopca<-train(classe~.,data=slim2,method='ranger',trControl=tr_c)
-model_ranger<-train(classe ~ .  ,data=slimmed,method='ranger',trControl=tr_c,tuneGrid = expand.grid(mtry= c(5,10,20)),importance='impurity')
+model_ranger<-train(classe ~ .  ,data=slimtr,method='ranger',trControl=tr_c,tuneGrid = expand.grid(mtry= c(5,10,20)),importance='impurity')
+endtime<-Sys.time()
+endtime - starttime
+```
+output model stuff
+
+```{r rangerstuff, cache=TRUE, dependson='ranger'}
 ggplot(model_ranger)
 model_ranger
 model_ranger$finalModel
 # tr_c<-trainControl(method="cv",preProcOptions = list(thresh = 0.8))
 # model_glm<-train(classe~.,data=slimmed,method='glm',family='binomial',train_control=tr_c,preProcess=c('pca','knnImpute'))
 # summary(model_glm)
-```
-Important variables
-
-```{r varimportance,cache=TRUE,dependson='ranger'}
 moose<-varImp(model_ranger)
 mostimport <- order(moose$importance$Overall,decreasing=TRUE)
-h<-ggpairs(data=slimmed,columns=mostimport[1:5],mapping=ggplot2::aes(colour = classe,alpha=0.1))
+h<-ggpairs(data=slimtr,columns=mostimport[1:5],mapping=ggplot2::aes(colour = classe,alpha=0.1))
 print(h)
+
+# confusionMatrix
+rangerpred<-predict(model_ranger,newdata=slimval)
+confusionMatrix(data=rangerpred,reference=slimval$classe)
 ```
 
 A second random forest, this time using repeated cross validation, and maybe some more variable samplings
@@ -121,7 +146,7 @@ tr_c<-trainControl(method='repeatedcv',number=10,repeats=3,allowParallel=TRUE)
 # 20 fold cross validation, repeated 5 times
 # can also select 'oob' for out of bag
 # model_ranger_nopca<-train(classe~.,data=slim2,method='ranger',trControl=tr_c)
-model_ranger2<-train(classe ~ .  ,data=slimmed,method='ranger',trControl=tr_c,tuneGrid = expand.grid(mtry= c(2,10,30)),importance='impurity')
+model_ranger2<-train(classe ~ .  ,data=slimtr,method='ranger',trControl=tr_c,tuneGrid = expand.grid(mtry= c(2,10,30)),importance='impurity')
 endtime<-Sys.time()
 endtime - starttime
 ```
@@ -135,16 +160,36 @@ model_ranger2$finalModel
 # model_glm<-train(classe~.,data=slimmed,method='glm',family='binomial',train_control=tr_c,preProcess=c('pca','knnImpute'))
 # summary(model_glm)
 varImp(model_ranger2)
+# confusionMatrix
+ranger2pred<-predict(model_ranger2,newdata=slimval)
+confusionMatrix(data=ranger2pred,reference=slimval$classe)
+
 ```
 
 ranger3, random forest with pca
+
+First, preprocess the training set to get an idea of how many components to use. We will want to do the actual pca preprocessing within the train method, but want to know how many variables will be present (specify pcaComps). This is needed for the mtry grid used by train (can try a random sample of 40 variables if there are only 12 after pca). 
+
+```{r pcaCheck, cache=TRUE, dependson='tidy'}
+set.seed(5074491)
+starttime<-Sys.time()
+preproc<-preProcess(slimtr[-53],method='pca',thresh=0.95)
+preproc
+preproc<-preProcess(slimtr[-53],method='pca',thresh=0.90)
+preproc
+preproc<-preProcess(slimtr[-53],method='pca',thresh=0.85)
+preproc
+endtime<-Sys.time()
+endtime - starttime
+```
+will use 25 components (for now)
 
 ```{r ranger3, cache=TRUE, dependson='tidy'}
 set.seed(5074491)
 starttime<-Sys.time()
 # tr_c<-trainControl(method='repeatedcv',number=20,repeats=5,allowParallel=TRUE)
-tr_c<-trainControl(method='repeatedcv',number=10,repeats=3,allowParallel=TRUE,preProcOptions = list(thresh = 0.8)) 
-model_ranger3<-train(classe ~ .  ,data=slimmed,method='ranger',trControl=tr_c,tuneGrid = expand.grid(mtry= c(2,4,8,10)),importance='impurity',preProcess='pca')
+tr_c<-trainControl(method='repeatedcv',number=10,repeats=3,allowParallel=TRUE,preProcOptions = list(pcaComp = 25)) 
+model_ranger3<-train(classe ~ .  ,data=slimtr,method='ranger',trControl=tr_c,tuneGrid = expand.grid(mtry= c(2,4,8,10)),importance='impurity',preProcess='pca')
 endtime<-Sys.time()
 endtime - starttime
 ```
@@ -155,18 +200,25 @@ ranger3 stuff
 ggplot(model_ranger3)
 model_ranger3
 model_ranger3$finalModel
+#confusionMatrix
+# confusionMatrix
+ranger3pred<-predict(model_ranger3,newdata=slimval)
+confusionMatrix(data=ranger3pred,reference=slimval$classe)
+
 # tr_c<-trainControl(method="cv",preProcOptions = list(thresh = 0.8))
 # model_glm<-train(classe~.,data=slimmed,method='glm',family='binomial',train_control=tr_c,preProcess=c('pca','knnImpute'))
 # summary(model_glm)
 varImp(model_ranger3)
 ```
-## Actually PCA
-use some PCA preprocessing, maybe with another random forest
 
-also look into svm
+## Ensemble Learning
+first, set up a seperate validation set. Pull this from training. 
 
-maybe one other model (gbm?) boosted decision tree?
+Use an odd number of models. Right now we have a few random forests (with and without PCA) and a basic decision tree. Maybe add a glm (can we do this for classification?) and an svm. look through caret if we want more
 
+We can use ranger to do a random forest. Maybe do a naive Bayes (in class lectures), an SVM, and MLP (multi-layer perceptron - neural network) and a boosted decision tree
+This is probably overkill, as it looks like our existing models have ~99% accuracy (ranger 1 and 2 are around 99.5, ranger3 is 98.6)
+would like to do a glm, if this could be used for multi-class classification.
 
 
 
