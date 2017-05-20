@@ -1,5 +1,5 @@
 ---
-title: "Machine Learning Project"
+title: "Activity classification from wearable device measurements"
 output:
   html_document:
     mathjax: "https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-AMS-MML_HTMLorMML"
@@ -8,53 +8,50 @@ output:
 ---
 
 ===============================
+# Introduction
+
+Data comes from XX. Aim is to predict whether subject is performing a weight lifting excercise correctly, or making one of several common mistakes.
+
+Data will first be partitioned and tidied, and then some models will be tuned on the training set
+
+Will use try several models (LDA, random forest, boosted decision tree, SVM, MLP). Will then use these models as component classifiers in an ensemble learning system. Will then assess the final model performance on the test data.
+
+# Data Partitioning
+
+First load required R libraries and set chuk options
+
 load caret and ggplot2
 
-```{r packages, cache=FALSE}
+```{r packages, cache=FALSE,message=FALSE,warning=FALSE,echo=FALSE}
 library(knitr)
-# opts_chunk$set(fig.width=8, fig.height=8,dpi=144)
 opts_chunk$set(fig.width=6, fig.height=6,dpi=108)
-
 require(ggplot2)
 require(dplyr)
 require(caret)
 require(ranger)
+require(MASS)
 ```
-load data
+Load data. The `cvtd_time` variable is converted to a posixlt class.
 
 ```{r loaddata,cache=TRUE}
 training<-read.csv('./data/pml-training.csv',stringsAsFactors=TRUE,na.strings = c("#DIV/0!","NA"))
 dim(training)
-#str(training,list.len=ncol(training))
-# training$cvtd_time<-strptime(training$cvtd_timestamp,format = "%d/%m/%Y %H:%M",list=FALSE)
+training$cvtd_timestamp<-strptime(training$cvtd_timestamp,format = "%d/%m/%Y %H:%M")
 ```
 
+The activity classification is specified in the classe variable. In the training dataset, this is highly correlated with time information:
 
-## Timestamps
 classe is correlated with time:
 
 ```{r timecorr, dependson='loaddata', cache=TRUE}
 h<- ggplot(data=training,aes(x=raw_timestamp_part_1,y=classe,colour=classe)) + geom_point()
 print(h + scale_x_continuous(limits=c(1323084231,1323084370)))
-print(h + scale_x_continuous(limits=c(1323094900,1323095100)))
 ```
+The aim is to predict based on the sensor data. Will omit subject name, time, and window information from the training dataset, As these would not be useful predictors for measurements taken at later dates.
 
-will want to strip irrelevant info, user, time, window stuff from training data.
+Also, there are a lot of missing values for a number of variables. These could be imputed, but for some of these columns only about 1.5% of the measurements are present. Will omit these variables also.
 
-
-## tidying
-write a function to do this, as we will need to tidy the test data also
-cvtd timestamp -> to date
- $ max_roll_belt 
-  max_picth_belt 
-  min_roll_belt   
-  min_pitch_belt
-amplitude_roll_belt   
-A bunch of others
-
-set things to missing, impute the missing values
-
-Then procede
+Finally, will partition the "training" data into training and validation sets. The validation set will be used to assess each model, and also to train the ensemble.
 
 ```{r tidy, dependson='loaddata', cache=TRUE}
 na_list<-sapply(training,function(x) { sum(is.na(x))})
@@ -68,74 +65,28 @@ slimtr<-slimmed[inTrain,]
 slimval<-slimmed[-inTrain,]
 ```
 
+# Linear Discriminant analysis.
 
+This is like logistic regression for classification. Chapter 4 of ESL is good. All predictor variables are used. K-fold cross validation is used with 10 folds, repeated 3 times. Preditor variables are centred and scaled before the model is trained. This preprocessing is carried out in caret's `train` method, so that the data transformations are computed seperately for each fold, using only the training data in that fold. 
 
-## some exploratory plots
-
-# glm
-
-We'll try a glm (binomial) model (logit). Maybe this does a bunch of models?
-make sure we do the preprocessing within the `train` statement, or else it messes up cross validation (We should split the data into folds and conduct PCA within each fold, rather than transforming via PCA and then splitting). 
-
-
-
-
-## basic tree
-```{r rpart,cache=TRUE, dependson='tidy'}
+```{r lda,cache=TRUE, dependson='tidy'}
 set.seed(5074491)
 starttime<-Sys.time()
-treefit<-train(classe ~ . , data=slimtr, method='rpart')
+tr_c<-trainControl(method='repeatedcv',number=10,repeats =3,allowParallel=TRUE) 
+ldafit<-train(classe ~ . , data=slimtr, method='lda',trainControl=tr_c, preProcess=c('center','scale'))
 endtime<-Sys.time()
 endtime - starttime
 ```
 
-rpart performance
+## results
+Confusion matrix, error rates, accuracy metrics, etc. cross validation stuff. 
 
-```{r rpartstuff,cache=TRUE,dependson='rpart'}
-treefit
-treefit$finalModel
-ggplot(treefit)
-plot(treefit$finalModel)
-# confusionMatrix
-rpartpred<-predict(treefit,newdata=slimval,type='raw')
-confusionMatrix(data=rpartpred,reference=slimval$classe)
-```
-<!-- library(devtools) -->
-<!-- install_bitbucket("mkuhn/parallelRandomForest", ref="parallelRandomForest") -->
-## random forest
-```{r ranger, cache=TRUE, dependson='tidy'}
-set.seed(5074491)
-starttime<-Sys.time()
-# tr_c<-trainControl(method='repeatedcv',number=20,repeats=5,allowParallel=TRUE)
-tr_c<-trainControl(method='cv',number=10,allowParallel=TRUE) 
 
-# 20 fold cross validation, repeated 5 times
-# can also select 'oob' for out of bag
-# model_ranger_nopca<-train(classe~.,data=slim2,method='ranger',trControl=tr_c)
-model_ranger<-train(classe ~ .  ,data=slimtr,method='ranger',trControl=tr_c,tuneGrid = expand.grid(mtry= c(5,10,20)),importance='impurity')
-endtime<-Sys.time()
-endtime - starttime
-```
-output model stuff
+# Random Forest
 
-```{r rangerstuff, cache=TRUE, dependson='ranger'}
-ggplot(model_ranger)
-model_ranger
-model_ranger$finalModel
-# tr_c<-trainControl(method="cv",preProcOptions = list(thresh = 0.8))
-# model_glm<-train(classe~.,data=slimmed,method='glm',family='binomial',train_control=tr_c,preProcess=c('pca','knnImpute'))
-# summary(model_glm)
-moose<-varImp(model_ranger)
-mostimport <- order(moose$importance$Overall,decreasing=TRUE)
-h<-ggpairs(data=slimtr,columns=mostimport[1:5],mapping=ggplot2::aes(colour = classe,alpha=0.1))
-print(h)
+Use the random forest implementation from the ranger package
+Use k-fold cross validation with 3 repeats. mtry parameter is the number of predictor variables sampled at each branch of the tree. 
 
-# confusionMatrix
-rangerpred<-predict(model_ranger,newdata=slimval)
-confusionMatrix(data=rangerpred,reference=slimval$classe)
-```
-
-A second random forest, this time using repeated cross validation, and maybe some more variable samplings
 
 ```{r ranger2, cache=TRUE, dependson='tidy'}
 set.seed(5074491)
@@ -150,6 +101,7 @@ model_ranger2<-train(classe ~ .  ,data=slimtr,method='ranger',trControl=tr_c,tun
 endtime<-Sys.time()
 endtime - starttime
 ```
+
 ranger2 stuff
 
 ```{r ranger2stuff,cache=TRUE,dependson='ranger2' }
@@ -166,62 +118,35 @@ confusionMatrix(data=ranger2pred,reference=slimval$classe)
 
 ```
 
-ranger3, random forest with pca
+This performs pretty well. Optimal value of mtry was found to be 10. Will try a few more values around here
 
-First, preprocess the training set to get an idea of how many components to use. We will want to do the actual pca preprocessing within the train method, but want to know how many variables will be present (specify pcaComps). This is needed for the mtry grid used by train (can try a random sample of 40 variables if there are only 12 after pca). 
-
-```{r pcaCheck, cache=TRUE, dependson='tidy'}
-set.seed(5074491)
-starttime<-Sys.time()
-preproc<-preProcess(slimtr[-53],method='pca',thresh=0.95)
-preproc
-preproc<-preProcess(slimtr[-53],method='pca',thresh=0.90)
-preproc
-preproc<-preProcess(slimtr[-53],method='pca',thresh=0.85)
-preproc
-endtime<-Sys.time()
-endtime - starttime
-```
-will use 25 components (for now)
-
-```{r ranger3, cache=TRUE, dependson='tidy'}
+```{r ranger2a, cache=TRUE, dependson='tidy'}
 set.seed(5074491)
 starttime<-Sys.time()
 # tr_c<-trainControl(method='repeatedcv',number=20,repeats=5,allowParallel=TRUE)
-tr_c<-trainControl(method='repeatedcv',number=10,repeats=3,allowParallel=TRUE,preProcOptions = list(pcaComp = 25)) 
-model_ranger3<-train(classe ~ .  ,data=slimtr,method='ranger',trControl=tr_c,tuneGrid = expand.grid(mtry= c(2,4,8,10)),importance='impurity',preProcess='pca')
+tr_c<-trainControl(method='repeatedcv',number=10,repeats=3,allowParallel=TRUE) 
+
+# 20 fold cross validation, repeated 5 times
+# can also select 'oob' for out of bag
+# model_ranger_nopca<-train(classe~.,data=slim2,method='ranger',trControl=tr_c)
+model_ranger2a<-train(classe ~ .  ,data=slimtr,method='ranger',trControl=tr_c,tuneGrid = expand.grid(mtry= c(6,8,10,12,14)
 endtime<-Sys.time()
 endtime - starttime
 ```
 
-ranger3 stuff
+any improvement?
 
-```{r ranger3stuff,cache=TRUE,dependson='ranger3' }
-ggplot(model_ranger3)
-model_ranger3
-model_ranger3$finalModel
-#confusionMatrix
-# confusionMatrix
-ranger3pred<-predict(model_ranger3,newdata=slimval)
-confusionMatrix(data=ranger3pred,reference=slimval$classe)
-
+```{r ranger2astuff,cache=TRUE,dependson='ranger2' }
+ggplot(model_ranger2a)
+model_ranger2a
+model_ranger2a$finalModel
 # tr_c<-trainControl(method="cv",preProcOptions = list(thresh = 0.8))
 # model_glm<-train(classe~.,data=slimmed,method='glm',family='binomial',train_control=tr_c,preProcess=c('pca','knnImpute'))
 # summary(model_glm)
-varImp(model_ranger3)
+varImp(model_ranger2a)
+# confusionMatrix
+ranger2apred<-predict(model_ranger2a,newdata=slimval)
+confusionMatrix(data=ranger2preda,reference=slimval$classe)
+
 ```
-
-## Ensemble Learning
-first, set up a seperate validation set. Pull this from training. 
-
-Use an odd number of models. Right now we have a few random forests (with and without PCA) and a basic decision tree. Maybe add a glm (can we do this for classification?) and an svm. look through caret if we want more
-
-We can use ranger to do a random forest. Maybe do a naive Bayes (in class lectures), an SVM, and MLP (multi-layer perceptron - neural network) and a boosted decision tree
-This is probably overkill, as it looks like our existing models have ~99% accuracy (ranger 1 and 2 are around 99.5, ranger3 is 98.6)
-would like to do a glm, if this could be used for multi-class classification.
-
-
-
-
-
 
