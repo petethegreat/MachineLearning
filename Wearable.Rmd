@@ -129,7 +129,7 @@ tr_c<-trainControl(method='repeatedcv',number=10,repeats=3,allowParallel=TRUE)
 # 20 fold cross validation, repeated 5 times
 # can also select 'oob' for out of bag
 # model_ranger_nopca<-train(classe~.,data=slim2,method='ranger',trControl=tr_c)
-model_ranger2a<-train(classe ~ .  ,data=slimtr,method='ranger',trControl=tr_c,tuneGrid = expand.grid(mtry= c(6,8,10,12,14)
+model_ranger2a<-train(classe ~ .  ,data=slimtr,method='ranger',trControl=tr_c,tuneGrid = expand.grid(mtry= c(6,8,10,12,14)),importance='impurity')
 endtime<-Sys.time()
 endtime - starttime
 ```
@@ -149,4 +149,5 @@ ranger2apred<-predict(model_ranger2a,newdata=slimval)
 confusionMatrix(data=ranger2preda,reference=slimval$classe)
 
 ```
-
+<!-- ROC curve  -->
+<!-- http://stackoverflow.com/questions/30366143/how-to-compute-roc-and-auc-under-roc-after-training-using-caret-in-r -->
