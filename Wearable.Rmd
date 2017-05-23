@@ -103,6 +103,7 @@ endtime - starttime
 ```
 
 ## results
+
 Confusion matrix, error rates, accuracy metrics, etc. cross validation stuff. 
 
 ```{r ldastuff,cache=TRUE, dependson='lda'}
@@ -256,6 +257,15 @@ tuning parameters
 assessment
 ROC curve
 
+classProbs=TRUE in traincontrol
+think ROC isn't going to work easily. 
+
+
+plot classe vs time
+plot variable correlation
+
+plot variable importance
+plot tuning (x2)
 
 
 
