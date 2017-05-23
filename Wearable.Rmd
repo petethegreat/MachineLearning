@@ -32,12 +32,12 @@ load caret and ggplot2
 ```{r packages, cache=FALSE,message=FALSE,warning=FALSE}
 library(knitr)
 opts_chunk$set(fig.width=6, fig.height=6,dpi=108)
-require(ggplot2)
-require(dplyr)
-require(caret)
-require(ranger)
-require(MASS)
-require(reshape2)
+library(ggplot2)
+library(dplyr)
+library(caret)
+library(ranger)
+library(MASS)
+library(reshape2)
 ```
 Load data. The `cvtd_time` variable is converted to a posixlt class.
 
@@ -102,6 +102,7 @@ endtime<-Sys.time()
 endtime - starttime
 ```
 
+could do a gbm if we really wanted
 ## results
 
 Confusion matrix, error rates, accuracy metrics, etc. cross validation stuff. 
@@ -126,7 +127,7 @@ Use the random forest implementation from the ranger package
 Use k-fold cross validation with 3 repeats. mtry parameter is the number of predictor variables sampled at each branch of the tree. 
 
 
-```{r ranger2, cache=TRUE, dependson='tidy'}
+```{r rangerInitial, cache=TRUE, dependson='tidy'}
 set.seed(5074491)
 starttime<-Sys.time()
 # tr_c<-trainControl(method='repeatedcv',number=20,repeats=5,allowParallel=TRUE)
@@ -135,30 +136,30 @@ tr_c<-trainControl(method='repeatedcv',number=10,repeats =3,allowParallel=TRUE)
 # 20 fold cross validation, repeated 5 times
 # can also select 'oob' for out of bag
 # model_ranger_nopca<-train(classe~.,data=slim2,method='ranger',trControl=tr_c)
-model_ranger2<-train(classe ~ .  ,data=slimtr,method='ranger',trControl=tr_c,tuneGrid = expand.grid(mtry=c(5,10,15)),importance='impurity')
+model_rangerInitial<-train(classe ~ .  ,data=slimtr,method='ranger',trControl=tr_c,tuneGrid = expand.grid(mtry=c(5,10,15)),importance='impurity')
 endtime<-Sys.time()
 endtime - starttime
 ```
 
-ranger2 stuff
+rangerInitial stuff
 
-```{r ranger2stuff,cache=TRUE,dependson='ranger2' }
-ggplot(model_ranger2)
-model_ranger2
-model_ranger2$finalModel
+```{r rangerInitialstuff,cache=TRUE,dependson='rangerInitial' }
+ggplot(model_rangerInitial)
+model_rangerInitial
+model_rangerInitial$finalModel
 # tr_c<-trainControl(method="cv",preProcOptions = list(thresh = 0.8))
 # model_glm<-train(classe~.,data=slimmed,method='glm',family='binomial',train_control=tr_c,preProcess=c('pca','knnImpute'))
 # summary(model_glm)
-varImp(model_ranger2)
+varImp(model_rangerInitial)
 # confusionMatrix
-ranger2pred<-predict(model_ranger2,newdata=slimval)
-confusionMatrix(data=ranger2pred,reference=slimval$classe)
+rangerInitialpred<-predict(model_rangerInitial,newdata=slimval)
+confusionMatrix(data=rangerInitialpred,reference=slimval$classe)
 
 ```
 
 This performs pretty well. Optimal value of mtry was found to be 10. Will try a few more values around here
 
-```{r ranger2a, cache=TRUE, dependson='tidy'}
+```{r rangerTuned, cache=TRUE, dependson='tidy'}
 set.seed(5074491)
 starttime<-Sys.time()
 # tr_c<-trainControl(method='repeatedcv',number=20,repeats=5,allowParallel=TRUE)
@@ -167,56 +168,63 @@ tr_c<-trainControl(method='repeatedcv',number=10,repeats =3,allowParallel=TRUE)
 # 20 fold cross validation, repeated 5 times
 # can also select 'oob' for out of bag
 # model_ranger_nopca<-train(classe~.,data=slim2,method='ranger',trControl=tr_c)
-model_ranger2a<-train(classe ~ .  ,data=slimtr,method='ranger',trControl=tr_c,tuneGrid = expand.grid(mtry= c(6,8,9,10,11,12)),importance='impurity')
+model_rangerTuned<-train(classe ~ .  ,data=slimtr,method='ranger',trControl=tr_c,tuneGrid = expand.grid(mtry= c(6,8,9,10,11,12)),importance='impurity')
 endtime<-Sys.time()
 endtime - starttime
 ```
 
 any improvement?
 
-```{r ranger2astuff,cache=TRUE,dependson='ranger2' }
-ggplot(model_ranger2a)
-model_ranger2a
-model_ranger2a$finalModel
+```{r rangerTunedstuff,cache=TRUE,dependson='rangerTuned' }
+ggplot(model_rangerTuned)
+model_rangerTuned
+model_rangerTuned$finalModel
 # tr_c<-trainControl(method="cv",preProcOptions = list(thresh = 0.8))
 # model_glm<-train(classe~.,data=slimmed,method='glm',family='binomial',train_control=tr_c,preProcess=c('pca','knnImpute'))
 # summary(model_glm)
-varImp(model_ranger2a)
+varimps<-varImp(model_rangerTuned)
+imps<-data.frame(var=row.names(varimps$importance),importance=varimps$importance)
+importance<-data.frame(var=row.names(imps$importance),Overall=imps$importance)
+# keep only top 20 variables
+imps<-imps[order(imps$Overall,decreasing=TRUE)[1:20],]
+h<-ggplot(data=imps,aes(x=var,weight=Overall,fill=Overall)) + geom_bar() + 
+scale_x_discrete(limits=imps$var) + scale_fill_gradientn(colors=c('purple','red')) + labs(y="relative importance (%)",x="variable") +
+theme(axis.text.x = element_text(angle = 90, hjust = 1)) + guides(fill=FALSE)
+print(h)
 # confusionMatrix
-ranger2apred<-predict(model_ranger2a,newdata=slimval)
-confusionMatrix(data=ranger2apred,reference=slimval$classe)
+rangerTunedpred<-predict(model_rangerTuned,newdata=slimval)
+confusionMatrix(data=rangerTunedpred,reference=slimval$classe)
 
 ```
 
 try pca
 
-```{r ranger3, cache=TRUE, dependson='tidy'}
+```{r rangerPCA, cache=TRUE, dependson='tidy'}
 set.seed(5074491)
 starttime<-Sys.time()
 # tr_c<-trainControl(method='repeatedcv',number=20,repeats=5,allowParallel=TRUE)
 tr_c<-trainControl(method='repeatedcv',number=10,repeats=3,allowParallel=TRUE,preProcOptions = list(pcaComp = 25)) 
-model_ranger3<-train(classe ~ .  ,data=slimtr,method='ranger',trControl=tr_c,tuneGrid = expand.grid( mtry= c(3,4,5,6)),importance='impurity',preProcess='pca')
+model_rangerPCA<-train(classe ~ .  ,data=slimtr,method='ranger',trControl=tr_c,tuneGrid = expand.grid( mtry= c(2,3,4,5)),importance='impurity',preProcess='pca')
 endtime<-Sys.time()
 endtime - starttime
 ```
 
-ranger3 stuff
+rangerPCA stuff
 
-```{r ranger3stuff,cache=TRUE,dependson='ranger3' }
-library(ROCR)
-ggplot(model_ranger3)
-model_ranger3
-model_ranger3$finalModel
+```{r rangerPCAstuff,cache=TRUE,dependson='rangerPCA' }
+ggplot(model_rangerPCA)
+model_rangerPCA
+model_rangerPCA$finalModel
 #confusionMatrix
 # confusionMatrix
-model_ranger3$finalModel$confusion.matrix
-ranger3pred<-predict(model_ranger3,newdata=slimval,predict.all=TRUE)
-dim(ranger3pred)
-confusionMatrix(data=ranger3pred,reference=slimval$classe)
-# summary(ranger3pred)
+model_rangerPCA$finalModel$confusion.matrix
+rangerPCApred<-predict(model_rangerPCA,newdata=slimval,predict.all=TRUE)
+dim(rangerPCApred)
+confusionMatrix(data=rangerPCApred,reference=slimval$classe)
+# summary(rangerPCApred)
 
 #ROC curve
-#result.roc <- roc(slimval$classe, ranger3pred) # Draw ROC curve.
+#result.roc <- roc(slimval$classe, rangerPCApred) # Draw ROC curve.
 #plot(result.roc, print.thres="best", print.thres.best.method="closest.topleft")
 
 
@@ -242,7 +250,9 @@ After the cross validation has been carried out, the final model is trained on t
 
 Also,we have the validation set that we held back. This is data that has not been seen at all in the training process. This should be good for estimating error, would trust this the most. Generally use cross validation in cases where can't afford to hold data back for a validation set. Using cross validation here, but figured theres plenty of data, so might as well make a validation set anyway. Our models seem very good, so don't think anything was hurt by not training on our validation data.
 
-What are kappa, etc?
+What are kappa, etc? Kappa compares observed accuraccy to expected accuracy. Expected accuracy looks like correlation, except we are multiplying sums rather than summing products - which is equal to correlation if things are independant  $\langle a b \rangle = \langle a \rangle \langle b \rangle. So expected accuracy assumes no correlation, it's just random guessing.
+
+
 
 
 
@@ -266,6 +276,30 @@ plot variable correlation
 
 plot variable importance
 plot tuning (x2)
+
+Thus the AUC is equivalent to the probability that a randomly chosen member of class 1 will have a smaller estimated probability of belonging to class 0 than a randomly chosen member of class 0
+
+
+## Test predictions
+load the data
+
+```{r loadtest,cache=TRUE,dependson='rangerTuned'}
+testing<-read.csv('./data/pml-testing.csv',stringsAsFactors=TRUE,na.strings = c("#DIV/0!","NA"))
+dim(testing)
+testing$cvtd_timestamp<-strptime(testing$cvtd_timestamp,format = "%d/%m/%Y %H:%M")
+
+# there is no classe variable in the testing set
+# classe is the last variable in "good", the list of variables without missing values from the "loaddata" chunk above
+slimtest<-testing[ good[-length(good)]]
+slimtest<-slimtest[,-(1:7)]
+str(slimtest)
+
+testPred<-predict(model_rangerTuned,newdata=slimtest)
+results<-data.frame(case=seq_along(testPred),prediction=testPred)
+#results
+
+```
+Test results are all good, according to the quiz. My prediction outputs are suppressed here as showing them may violate the coursera honour code.
 
 
 
