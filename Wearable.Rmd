@@ -96,7 +96,7 @@ There are a few patterns between off diagonal elements, indicating correlation b
 A pairs plot of the first 7 variables is shown below.
 
 ```{r pairplot,dependson='tidy',cache=TRUE,fig.width=8, fig.height=8,dpi=144}
-h<-ggpairs(data=slimtr,columns=1:7,mapping=ggplot2::aes(colour = classe,alpha=0.02,stroke=0))
+h<-ggpairs(data=slimtr,columns=1:7,mapping=ggplot2::aes(colour = classe,alpha=0.02))
 print(h)
 ```
 
