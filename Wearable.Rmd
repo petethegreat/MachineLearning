@@ -39,22 +39,23 @@ library(ranger)
 library(MASS)
 library(reshape2)
 ```
-Load data. The `cvtd_time` variable is converted to a posixlt class.
+Load data. 
 
 ```{r loaddata,cache=TRUE}
 training<-read.csv('./data/pml-training.csv',stringsAsFactors=TRUE,na.strings = c("#DIV/0!","NA"))
 dim(training)
+# convert cvtd_timestamp to posixlt class
 training$cvtd_timestamp<-strptime(training$cvtd_timestamp,format = "%d/%m/%Y %H:%M")
 ```
 
-The activity classification is specified in the classe variable. In the training dataset, this is highly correlated with time information:
-
-classe is correlated with time:
+The activity classification is specified in the `classe` variable. In the training dataset, this is highly correlated with time information. This can be seen by plotting `classe` vs `raw_timestamp_part_1`
 
 ```{r timecorr, dependson='loaddata', cache=TRUE}
 h<- ggplot(data=training,aes(x=raw_timestamp_part_1,y=classe,colour=classe)) + geom_point()
 print(h + scale_x_continuous(limits=c(1323084231,1323084370)))
 ```
+
+A model that incorporates time information as a predictor will not be useful when applied to new data 
 The aim is to predict based on the sensor data. Will omit subject name, time, and window information from the training dataset, As these would not be useful predictors for measurements taken at later dates.
 
 Also, there are a lot of missing values for a number of variables. These could be imputed, but for some of these columns only about 1.5% of the measurements are present. Will omit these variables also.
@@ -74,6 +75,7 @@ slimval<-slimmed[-inTrain,]
 ```
 
 # Exploratory
+
 look at correlation between slimmed variables
 
 ```{r correlation,dependson='tidy',cache=TRUE}
@@ -89,9 +91,15 @@ print(corrplot)
 
 ```
 
-# Linear Discriminant analysis.
 
-This is like logistic regression for classification. Chapter 4 of ESL is good. All predictor variables are used. K-fold cross validation is used with 10 folds, repeated 3 times. Preditor variables are centred and scaled before the model is trained. This preprocessing is carried out in caret's `train` method, so that the data transformations are computed seperately for each fold, using only the training data in that fold. 
+# Model Selection
+
+## Cross Validation
+caret has a few methods for cross validation. Will use repeatedcv, with number = 10 and repeats =3. This carries out 3 iterations of 10-fold cross validation. For each iteration, the training data is partitioned into 10 folds. 
+
+## Linear Discriminant analysis.
+
+This is like logistic regression for classification. Chapter 4 of ESL is good. All predictor variables are used. K-fold cross validation is used with 10 folds, repeated 3 times. Preditor variables are centred and scaled before the model is trained. This preprocessing is carried out in caret's `train` method, so that the data transformations are computed seperately for each fold, using only the training data in that fold. This lda implementation has no tuning parameters.
 
 ```{r lda,cache=TRUE, dependson='tidy'}
 set.seed(5074491)
@@ -102,8 +110,7 @@ endtime<-Sys.time()
 endtime - starttime
 ```
 
-could do a gbm if we really wanted
-## results
+### Model Assessment
 
 Confusion matrix, error rates, accuracy metrics, etc. cross validation stuff. 
 
@@ -120,12 +127,15 @@ ldapred<-predict(ldafit,newdata=slimval)
 confusionMatrix(data=ldapred,reference=slimval$classe)
 
 ```
+Accuracy isnt great. kappa isn't bad, but will try something else.
 
-# Random Forest
+## Random Forest
 
-Use the random forest implementation from the ranger package
-Use k-fold cross validation with 3 repeats. mtry parameter is the number of predictor variables sampled at each branch of the tree. 
+Use the random forest implementation from the ranger package.
+Random Forests are create a bootstrap ensemble of decision trees. 
 
+Number of variables to sample for each branch is governed by the mtry tuning parameter
+ESL recommends sqrt of number of variables for classification. There are 53 predictors, so around mtry=7-8. Will try a coarse grid to start, then refine it
 
 ```{r rangerInitial, cache=TRUE, dependson='tidy'}
 set.seed(5074491)
@@ -156,7 +166,6 @@ rangerInitialpred<-predict(model_rangerInitial,newdata=slimval)
 confusionMatrix(data=rangerInitialpred,reference=slimval$classe)
 
 ```
-
 This performs pretty well. Optimal value of mtry was found to be 10. Will try a few more values around here
 
 ```{r rangerTuned, cache=TRUE, dependson='tidy'}
@@ -173,7 +182,7 @@ endtime<-Sys.time()
 endtime - starttime
 ```
 
-any improvement?
+###  Model Assessment
 
 ```{r rangerTunedstuff,cache=TRUE,dependson='rangerTuned' }
 ggplot(model_rangerTuned)
@@ -197,7 +206,46 @@ confusionMatrix(data=rangerTunedpred,reference=slimval$classe)
 
 ```
 
-try pca
+optimal value seems to be around 9. 
+
+accuracy seems good, kappa very close to one, which is very good. (better than 0.4 is decent)
+compares observed accuracy to expected, whichis the accuracy expected from just random guessing (based on confusion matrix)
+
+Have a few ways of assessing error here. We did cross validation, which sould give us an idea of out of sample error. Random forests are a bootstrap method, and so we can get an out of bag error, which is "shown to be unbiased". Finally, we can partitioned of a validation set at the start, so we can use this. Generally cross validation is done when you want to use all data for training rather than reserving a subset for validation. Here we seem to have plenty of data, so no harm in saving some (indeed, our model performs very well).
+
+#### Cross validation
+
+can look at kappa and the confusion matrix
+
+#### out of bag
+
+out of bag accuracy is very good, agrees well with that from cross validation
+
+#### validation
+
+accuracy/kapp both agree with previous values
+confusion matrix looks great
+
+
+## Dimension Reduction/compression
+
+Random forests can run into difficulties when there are a few important predictors hidden amongst a large number of variables. (because we only sample a subset of the predictors at each branch, so there is a small probability of getting a good variable). Try to reduce the number of variables by pca, see if this improves things. 
+First get an idea of how many components are needed to capture a certain amount of variance
+
+```{r pcaCheck, cache=TRUE, dependson='tidy'}
+set.seed(5074491)
+starttime<-Sys.time()
+preproc<-preProcess(slimtr[-53],method='pca',thresh=0.95)
+preproc
+preproc<-preProcess(slimtr[-53],method='pca',thresh=0.90)
+preproc
+preproc<-preProcess(slimtr[-53],method='pca',thresh=0.85)
+preproc
+endtime<-Sys.time()
+endtime - starttime
+```
+Will aim for 95% variance, so will keep 25 components. Need to specify components, because otherwise the number of predictors might change for each cross validation fold.
+
 
 ```{r rangerPCA, cache=TRUE, dependson='tidy'}
 set.seed(5074491)
@@ -209,6 +257,7 @@ endtime<-Sys.time()
 endtime - starttime
 ```
 
+Took a long time for only 4 mtry values and a reduced number of predictors.
 rangerPCA stuff
 
 ```{r rangerPCAstuff,cache=TRUE,dependson='rangerPCA' }
@@ -232,6 +281,11 @@ confusionMatrix(data=rangerPCApred,reference=slimval$classe)
 # result.coords <- coords(result.roc, "best", best.method="closest.topleft", ret=c("threshold", "accuracy"))
 # print(result.coords)#to get threshold and accuracy
 ```
+doesnt perform super well. Also took a long time. Scalability. Will use the rangerTuned model above as our "final model".
+
+
+# TODO
+
 
 todo:
 add the pca components vs variance chunk
