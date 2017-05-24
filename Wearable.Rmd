@@ -38,6 +38,7 @@ library(caret)
 library(ranger)
 library(MASS)
 library(reshape2)
+library(GGally)
 ```
 Load data. 
 
@@ -76,7 +77,7 @@ slimval<-slimmed[-inTrain,]
 
 # Exploratory
 
-look at correlation between slimmed variables
+A plot of the correlation between predictor variables is shown below
 
 ```{r correlation,dependson='tidy',cache=TRUE}
 
@@ -88,8 +89,17 @@ corrplot<-ggplot(data=mcm,aes(x=Var1,y=Var2,fill=value)) + geom_tile(colour='whi
  scale_fill_gradientn(colours=c('blue','green')) +theme(axis.text.x = element_text(angle = 90, hjust = 1))
 print(corrplot)
 # h=ggplot(data=thecorr,)
-
 ```
+
+There are a few patterns between off diagonal elements, indicating correlation between predictors, For example, the total accelerationof the dumbell and the x and y components of the dumbell gyro measurements are strongly (anti) correlated with the y and z components of the forearm gyro measurements. This suggests that a Principal Components Analysis (PCA) may be able to reduce the number of variables that need be considered while retaining the observed variance.
+
+A pairs plot of the first 7 variables is shown below.
+
+```{r pairplot,dependson='tidy',cache=TRUE,fig.width=8, fig.height=8,dpi=144}
+h<-ggpairs(data=slimtr,columns=1:7,mapping=ggplot2::aes(colour = classe,alpha=0.02,stroke=0))
+print(h)
+```
+
 
 
 # Model Selection
@@ -135,7 +145,7 @@ Use the random forest implementation from the ranger package.
 Random Forests are create a bootstrap ensemble of decision trees. 
 
 Number of variables to sample for each branch is governed by the mtry tuning parameter
-ESL recommends sqrt of number of variables for classification. There are 53 predictors, so around mtry=7-8. Will try a coarse grid to start, then refine it
+ESL recommends sqrt of number of variables for classification. There are 53 predictors, so suggests an mtry=7-8. Will try a coarse grid to start, then refine it
 
 ```{r rangerInitial, cache=TRUE, dependson='tidy'}
 set.seed(5074491)
@@ -234,30 +244,27 @@ First get an idea of how many components are needed to capture a certain amount 
 
 ```{r pcaCheck, cache=TRUE, dependson='tidy'}
 set.seed(5074491)
-starttime<-Sys.time()
 preproc<-preProcess(slimtr[-53],method='pca',thresh=0.95)
-preproc
+preproc$numComp
 preproc<-preProcess(slimtr[-53],method='pca',thresh=0.90)
-preproc
+preproc$numComp
 preproc<-preProcess(slimtr[-53],method='pca',thresh=0.85)
-preproc
-endtime<-Sys.time()
-endtime - starttime
+preproc$numComp
 ```
-Will aim for 95% variance, so will keep 25 components. Need to specify components, because otherwise the number of predictors might change for each cross validation fold.
+Will aim for 95% variance, so will keep 26 components. We want the preprocessing to be carried out by the `train` function, so that it is done seperately using only the data in each fold. Preprocessing the dataset first and then training may introduce bias, as in that case the data in each fold will have been transformed based on the overall variance of the entire dataset - the transformation would depend on data not contained in the fold. It is also important to give the `train` method the number of PCA components to be used, rather than the relative amount of variance to be captured. It's possible that a constant variance threshold could result in different folds being transformed into a different number of PCA components. The ratio of variables sampled by the tree (mtry) to the total number of variables could then differ between folds. In extreme cases, a fold could contain fewer variables than the specified value of mtry, which would result in caret/ranger throwing errors. 
 
 
 ```{r rangerPCA, cache=TRUE, dependson='tidy'}
 set.seed(5074491)
 starttime<-Sys.time()
 # tr_c<-trainControl(method='repeatedcv',number=20,repeats=5,allowParallel=TRUE)
-tr_c<-trainControl(method='repeatedcv',number=10,repeats=3,allowParallel=TRUE,preProcOptions = list(pcaComp = 25)) 
+tr_c<-trainControl(method='repeatedcv',number=10,repeats=3,allowParallel=TRUE,preProcOptions = list(pcaComp = 26)) 
 model_rangerPCA<-train(classe ~ .  ,data=slimtr,method='ranger',trControl=tr_c,tuneGrid = expand.grid( mtry= c(2,3,4,5)),importance='impurity',preProcess='pca')
 endtime<-Sys.time()
 endtime - starttime
 ```
 
-Took a long time for only 4 mtry values and a reduced number of predictors.
+Took a (relatively) long time for only 4 mtry values and a reduced number of predictors.
 rangerPCA stuff
 
 ```{r rangerPCAstuff,cache=TRUE,dependson='rangerPCA' }
@@ -288,11 +295,11 @@ doesnt perform super well. Also took a long time. Scalability. Will use the rang
 
 
 todo:
-add the pca components vs variance chunk
-add roc curves
-add a couple more plots and some words
-read esl bagging/cross validation
-maybe switch accuracy metrics to oob, or cross validation method to oob
+
+    * add roc curves - maybe not. Can get the votes from the model prediction, but need to convert them to "probability"
+	  ** Not sure what pROC would want for this in a multiclass context
+	* add more words
+	* read esl bagging?
 
 
 # Model Assessment
@@ -310,7 +317,7 @@ What are kappa, etc? Kappa compares observed accuraccy to expected accuracy. Exp
 
 
 
-## Plots
+<!-- ## Plots
 
 exploratory - classe vs time correlation
 correlation heatmap
@@ -322,7 +329,7 @@ assessment
 ROC curve
 
 classProbs=TRUE in traincontrol
-think ROC isn't going to work easily. 
+think ROC isn't going to work easily.
 
 
 plot classe vs time
@@ -331,7 +338,7 @@ plot variable correlation
 plot variable importance
 plot tuning (x2)
 
-Thus the AUC is equivalent to the probability that a randomly chosen member of class 1 will have a smaller estimated probability of belonging to class 0 than a randomly chosen member of class 0
+Thus the AUC is equivalent to the probability that a randomly chosen member of class 1 will have a smaller estimated probability of belonging to class 0 than a randomly chosen member of class 0 -->
 
 
 ## Test predictions
