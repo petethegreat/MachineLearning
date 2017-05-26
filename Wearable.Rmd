@@ -106,7 +106,7 @@ print(h)
 
 ## Linear Discriminant analysis.
 
-This is like logistic regression for classification. Chapter 4 of ESL is good. All predictor variables are used. K-fold cross validation is used with 10 folds, repeated 3 times. Preditor variables are centred and scaled before the model is trained. This preprocessing is carried out in caret's `train` method, so that the data transformations are computed seperately for each fold, using only the training data in that fold. This lda implementation has no tuning parameters.
+This is like logistic regression for classification. Chapter 4 of ESL is good. All predictor variables are used. K-fold cross validation is used with 10 folds, repeated 3 times. Predictor variables are centred and scaled before the model is trained. This preprocessing is carried out in caret's `train` method, so that the data transformations are computed seperately for each fold, using only the training data in that fold. This lda implementation has no tuning parameters.
 
 ```{r lda,cache=TRUE, dependson='tidy'}
 set.seed(5074491)
@@ -116,6 +116,7 @@ ldafit<-train(classe ~ . , data=slimtr, method='lda',trainControl=tr_c, preProce
 endtime<-Sys.time()
 endtime - starttime
 ```
+
 
 ### Model Assessment
 
@@ -135,39 +136,28 @@ Accuracy isnt great. kappa isn't bad, but will try something else.
 
 ## Random Forest
 
-Use the random forest implementation from the ranger package.
-Random Forests are create a bootstrap ensemble of decision trees. 
+Will use the random forest implementation from the ranger package. Random forests generate an ensemble of decision trees. Each tree is trained on a bootstrap resample of the data, and only a random subset of the predictor variables are considered at each split in the tree.
 
-Number of variables to sample for each branch is governed by the mtry tuning parameter
-ESL recommends sqrt of number of variables for classification. There are 53 predictors, so suggests an mtry=7-8. Will try a coarse grid to start, then refine it
+Number of variables to sample for each branch is governed by the `mtry` tuning parameter. The [Elements of Statistical Learining](https://statweb.stanford.edu/~tibs/ElemStatLearn/) recommends using the square root of the number of predictor variables as the guideline for mtry. There are 53 predictors, which would suggest an mtry=7-8. Will start with a coarse grid around mtry=10, and then refine it.
+
+For cross validtion, will use k-fold cross validation with 10 folds repeated 3 times. Random forests don't neccesarily need to be cross-validated, this will be discuessed below.
 
 ```{r rangerInitial, cache=TRUE, dependson='tidy'}
 set.seed(5074491)
 starttime<-Sys.time()
-# tr_c<-trainControl(method='repeatedcv',number=20,repeats=5,allowParallel=TRUE)
 tr_c<-trainControl(method='repeatedcv',number=10,repeats =3,allowParallel=TRUE) 
 
-# 20 fold cross validation, repeated 5 times
-# can also select 'oob' for out of bag
-# model_ranger_nopca<-train(classe~.,data=slim2,method='ranger',trControl=tr_c)
 model_rangerInitial<-train(classe ~ .  ,data=slimtr,method='ranger',trControl=tr_c,tuneGrid = expand.grid(mtry=c(5,10,15)),importance='impurity')
 endtime<-Sys.time()
 endtime - starttime
 ```
 
-rangerInitial stuff
-
 ```{r rangerInitialstuff,cache=TRUE,dependson='rangerInitial' }
-# ggplot(model_rangerInitial)
 model_rangerInitial
-model_rangerInitial$finalModel
-
-# confusionMatrix
-# rangerInitialpred<-predict(model_rangerInitial,newdata=slimval)
-# confusionMatrix(data=rangerInitialpred,reference=slimval$classe)
 
 ```
-This performs pretty well. Optimal value of mtry was found to be 10. Will try a few more values around here
+
+This performs pretty well. Model accuracy and $\kappa$ are both greater than 99%.  The optimal value of `mtry` was found to be 10, so will look for an optimal value close to that.
 
 ```{r rangerTuned, cache=TRUE, dependson='tidy'}
 set.seed(5074491)
@@ -183,11 +173,19 @@ endtime<-Sys.time()
 endtime - starttime
 ```
 
+```{r rangertunedplot,cache=TRUE,dependson='rangerTuned'}
+ggplot(model_rangerTuned)
+```
+
+The optimal alue of mtry is found to be 9.
+
 ###  Model Assessment
 
+
+break this chunk up
 ```{r rangerTunedstuff,cache=TRUE,dependson='rangerTuned' }
 # plot accuracy vs mtry
-ggplot(model_rangerTuned)
+
 # model details
 model_rangerTuned
 model_rangerTuned$finalModel
@@ -212,26 +210,25 @@ rangerTunedpred<-predict(model_rangerTuned,newdata=slimval)
 confusionMatrix(data=rangerTunedpred,reference=slimval$classe)
 ```
 
-optimal value of mtry seems to be around 9. 
+Random forests can estimate out of sample accuracy using out of bag samples. Each tree in the forest is trained using a bootstrapped resample of the training set, and so there are some observations in the training data that a given tree was not exposed to. These observations can be used to assess the tree's accuracy. The accuracy of the forest can be estimated by having it predict on the training set, but only obtaining predictions from trees which were not trained on the observation being predicted. This is the out-of-bag error rate.  The optimal model above has an out of bag error of 0.4%, or an accuracy of 99.6%. 
 
-accuracy seems good, kappa very close to one, which is very good. (better than 0.4 is decent)
+confustion matrix from oob
+
+From the repeated k-fold cross-validation, model accuracy (at mtry=9) is estimated at 99.5% and $\kappa$ at 99.38%. These values are extremely good, which is nice. The accuracy is also consisted with the out-of-bag error rate.
+
+Validation set
+give similar performance, very good.
+validation confusion matrix, very similar to the OOB one
+
+Happy with this model
+Variable importance
+
+
+
+<!-- accuracy seems good, kappa very close to one, which is very good. (better than 0.4 is decent)
 compares observed accuracy to expected, whichis the accuracy expected from just random guessing (based on confusion matrix)
 
-Have a few ways of assessing error here. We did cross validation, which sould give us an idea of out of sample error. Random forests are a bootstrap method, and so we can get an out of bag error, which is "shown to be unbiased". Finally, we can partitioned of a validation set at the start, so we can use this. Generally cross validation is done when you want to use all data for training rather than reserving a subset for validation. Here we seem to have plenty of data, so no harm in saving some (indeed, our model performs very well).
-
-#### Cross validation
-
-can look at kappa and the confusion matrix
-
-#### out of bag
-
-out of bag accuracy is very good, agrees well with that from cross validation
-
-#### validation
-
-accuracy/kapp both agree with previous values
-confusion matrix looks great
-
+Have a few ways of assessing error here. We did cross validation, which sould give us an idea of out of sample error. Random forests are a bootstrap method, and so we can get an out of bag error, which is "shown to be unbiased". Finally, we can partitioned of a validation set at the start, so we can use this. Generally cross validation is done when you want to use all data for training rather than reserving a subset for validation. Here we seem to have plenty of data, so no harm in saving some (indeed, our model performs very well). -->
 
 ## Dimension Reduction/compression
 
