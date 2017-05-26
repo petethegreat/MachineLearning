@@ -11,23 +11,14 @@ output:
 
 # Introduction
 
-Data comes from XX. Aim is to predict whether subject is performing a weight lifting excercise correctly, or making one of several common mistakes.
+Data comes from the [Groupware Human Activity Recognition](http://groupware.les.inf.puc-rio.br/har) dataset. The aim of this project is to use machine learning to predict whether a subject is performing a weight lifting excercise correctly, or making one of several common mistakes.
 
-Data will first be partitioned and tidied
-
-Exploratory
- - correlation in time
- - correlation heatmap (after tidying)
-
- preprocessing - get an idea of how many components to use in PCA 
- should we use pca?
+Data is first loaded and tidied, then a short exploratory analysis is carried out before several models are trained and assessed.
 
 
 # Data Partitioning
 
-First load required R libraries and set chunk options
-
-load caret and ggplot2
+First load required R libraries and set chunk options (messages/warnings for this chunk are suppressed).
 
 ```{r packages, cache=FALSE,message=FALSE,warning=FALSE}
 library(knitr)
@@ -56,12 +47,11 @@ h<- ggplot(data=training,aes(x=raw_timestamp_part_1,y=classe,colour=classe)) + g
 print(h + scale_x_continuous(limits=c(1323084231,1323084370)))
 ```
 
-A model that incorporates time information as a predictor will not be useful when applied to new data 
-The aim is to predict based on the sensor data. Will omit subject name, time, and window information from the training dataset, As these would not be useful predictors for measurements taken at later dates.
+In this scenario, a model that incorporates time information as a predictor will not be useful when applied to new data. A good model should be able to predict based on just the sensor data. Will omit subject name, time, and window information from the training dataset, As these would not be useful predictors for measurements taken at later dates.
 
-Also, there are a lot of missing values for a number of variables. These could be imputed, but for some of these columns only about 1.5% of the measurements are present. Will omit these variables also.
+Also, there are a lot of missing values for a number of variables. These could be imputed, but for some of these columns only about 1.5% of the measurements are present. These variables will be omitted.
 
-Finally, will partition the "training" data into training and validation sets. The validation set will be used to assess each model, and also to train the ensemble.
+Finally, the "training" data will be repartitioned into training and validation sets. The validation set will be used to assess each model.
 
 ```{r tidy, dependson='loaddata', cache=TRUE}
 na_list<-sapply(training,function(x) { sum(is.na(x))})
@@ -86,14 +76,13 @@ A plot of the correlation between predictor variables is shown below.
 thecorr<-cor(slimmed[-53])
 thecorr[lower.tri(thecorr)]<- NA
 mcm<-melt(thecorr,na.rm=TRUE)
-head(mcm)
+#head(mcm)
 corrplot<-ggplot(data=mcm,aes(x=Var1,y=Var2,fill=value)) + geom_tile(colour='white') +
  scale_fill_gradientn(colours=c('blue','green')) +theme(axis.text.x = element_text(angle = 90, hjust = 1))
 print(corrplot)
-# h=ggplot(data=thecorr,)
 ```
 
-There are a few patterns between off diagonal elements, indicating correlation between predictors, For example, the total accelerationof the dumbell and the x and y components of the dumbell gyro measurements are strongly (anti) correlated with the y and z components of the forearm gyro measurements. This suggests that a Principal Components Analysis (PCA) may be able to reduce the number of variables that need be considered while retaining the observed variance.
+There are a few patterns between off diagonal elements, indicating correlation between predictors. For example, the total acceleration of the dumbbell and the x and y components of the dumbbell gyro measurements are strongly (anti) correlated with the y and z components of the forearm gyro measurements. This suggests that a Principal Components Analysis (PCA) may be able to reduce the number of variables that need be considered while retaining the observed variance.
 
 A pairs plot of the first 7 variables is shown below.
 
@@ -106,7 +95,20 @@ print(h)
 
 ## Linear Discriminant analysis.
 
-This is like logistic regression for classification. Chapter 4 of ESL is good. All predictor variables are used. K-fold cross validation is used with 10 folds, repeated 3 times. Predictor variables are centred and scaled before the model is trained. This preprocessing is carried out in caret's `train` method, so that the data transformations are computed seperately for each fold, using only the training data in that fold. This lda implementation has no tuning parameters.
+Linear discriminant analysis is a classification technique, and is described in detail in [Elements of Statistical Learining](https://statweb.stanford.edu/~tibs/ElemStatLearn/). Each of the $k$ classes is assumed to have a probability density in the form of a multivariate Gaussian:
+
+$$
+f_k(x) = \frac{1} {(2\pi)^{p/2} | \Sigma|^{1/2}}e^{-\frac{1}{2} (x - \mu_k)^T\Sigma^{-1} (x - \mu_k) }
+$$
+<!-- f_k(x) = \frac{e^{-1/2 (x - \mu_k)^T\Sigma_k^{-1} (x - \mu_k) }} {(2\pi)^{p/2} |\Sigma_k|^{1/2}} -->
+where $x$ is a column vector of predictor variables, $\mu_k$ is the mean of $x$ for class $k$, and $\Sigma$ is the covariance matrix for the predictor variables (and is assumed to be the same for all classes).  The discriminant function for class $k$ is then given by
+$$
+\delta_k(x) = x^T\Sigma^{-1} \mu_k - \frac{1}{2} \mu_k^T \Sigma^{-1}\mu_k + \log \pi_k
+$$
+
+where $\pi_k$ is the prior probability of class $k$ and can be estimated as $N_k/N$, where $N$ is the total number of training observations and $N_k$ is the number of observations in class $k$. The ratio $\delta_i(x) / \delta_j(x)$ is then equivalent to the log ratio of the conditional probabilities for the observation to lie in class $i$/$j$. Thus, a given observation $x$ is most likely to belong to the class with the highest discriminant function. As the discriminant functions are linear, the phase space covered by the predictor variables is broken up into multiple regions seperated by hyper-planes, where each region is associated with a single class.
+
+A linear discriminant model for the activity data is developed below, using caret's `train` function and 'lda' to specify the model. K-fold cross validation is used with 10 folds, repeated 3 times. Predictor variables are centred and scaled before the model is trained. This preprocessing is carried out within the `train` method, so that the data transformations are computed seperately for each fold, using only the training data in that fold. This lda implementation has no tuning parameters.
 
 ```{r lda,cache=TRUE, dependson='tidy'}
 set.seed(5074491)
@@ -120,7 +122,7 @@ endtime - starttime
 
 ### Model Assessment
 
-Confusion matrix, error rates, accuracy metrics, etc. cross validation stuff. 
+The performance of the lda model is summarised below.
 
 ```{r ldastuff,cache=TRUE, dependson='lda'}
 
@@ -132,7 +134,11 @@ ldapred<-predict(ldafit,newdata=slimval)
 confusionMatrix(data=ldapred,reference=slimval$classe)
 
 ```
-Accuracy isnt great. kappa isn't bad, but will try something else.
+The model uses k-fold cross validation, with k=10, to assess accuracy. The training sample is divided up into 10 folds. Each fold uses 9/10ths of the data for training and the remaining 1/10 for validation/testing. The cross validated error rate is the average of the error rates for each fold. For repeated cv's, the k-fold cross validation is repeated 3 times (in this case). The 10 folds are generated independantly for each repeat. After the cross validation has been carried out, the final model is trained on the **full** training set using the best parameters found during the tuning process. 
+
+Based on cross validation, this model has an estimated out-of-sample accuracy of $\sim70%$ and a $\kappa$ (kappa) value of 0.618. Kappa describes how well the model accuraccy compares to just random guessing; a value of 1.0 indicates perfect agreement, while 0.0 indicates pure chance (i.e. the 'model' is essentially a coin flip or die roll). Similar accuracy (0.71) and $\kappa$ (0.63) values are found when predicting on the validation set. The confusion matrix summarises the (mis)classification of the validation set.
+
+An accuracy of $\sim70\%$ is not bad, but other models may perform better.
 
 ## Random Forest
 
@@ -154,7 +160,6 @@ endtime - starttime
 
 ```{r rangerInitialstuff,cache=TRUE,dependson='rangerInitial' }
 model_rangerInitial
-
 ```
 
 This performs pretty well. Model accuracy and $\kappa$ are both greater than 99%.  The optimal value of `mtry` was found to be 10, so will look for an optimal value close to that.
@@ -177,18 +182,43 @@ endtime - starttime
 ggplot(model_rangerTuned)
 ```
 
-The optimal alue of mtry is found to be 9.
+The optimal value of mtry is found to be 9.
 
 ###  Model Assessment
 
 
-break this chunk up
-```{r rangerTunedstuff,cache=TRUE,dependson='rangerTuned' }
-# plot accuracy vs mtry
-
-# model details
-model_rangerTuned
+```{r rangerTunedstuff1,cache=TRUE,dependson='rangerTuned' }
 model_rangerTuned$finalModel
+```
+Random forests can estimate out of sample accuracy using "out-of-bag" samples. Each tree in the forest is trained using a bootstrapped resample of the training set, and so there are some observations in the training data that a given tree was not exposed to. These observations can be used to assess the tree's accuracy. The accuracy of the forest can be estimated by having it predict on the training set, but only using predictions from trees which were not trained on the observation being predicted. This is the out-of-bag error rate.  The optimal model above has an out-of-bagbag error of 0.4%, or an accuracy of 99.6%. 
+
+```{r rangerTunedstuff2,cache=TRUE,dependson='rangerTuned' }
+model_rangerTuned
+```
+From the repeated k-fold cross-validation, model accuracy (at mtry=9) is estimated at 99.5% and $\kappa$ at 99.38%. These values are extremely good, which is nice. The accuracy is also consisted with the out-of-bag error rate.
+
+An independant assessment of model accuracy can be obtained by predicting on the validation set
+
+```{r rangerTunedstuff3,cache=TRUE,dependson='rangerTuned' }
+# This is the confusion matrix generated by applying the final model to the vaidation set
+rangerTunedpred<-predict(model_rangerTuned,newdata=slimval)
+confusionMatrix(data=rangerTunedpred,reference=slimval$classe)
+```
+
+The tuned model performs extremely well on the validation set, with very few misclassifications. Accuracy and $\kappa$ are 0.998 and 0.997, respectively. These are slightly higher than the cross validation or out-of-bag estimates, which is interesting. Based on these values, I would expect this model to have an __out-of-sample error rate__ of 0.002. 
+
+Note that the confusion matrix obtained from out-of bag predictions performs similarly well
+
+```{r rangerTunedstuff4,cache=TRUE,dependson='rangerTuned' }
+# Confusion matrix
+# this one is generated from the training set using out-of-bag samples
+model_rangerTuned$finalModel$confusion.matrix
+```
+
+The relative importance of the predictor variables is shown below. 
+
+
+```{r rangerTunedstuff,cache=TRUE,dependson='rangerTuned' }
 
 # plot variable importance
 varimps<-varImp(model_rangerTuned)
@@ -200,40 +230,23 @@ h<-ggplot(data=imps,aes(x=var,weight=Overall,fill=Overall)) + geom_bar() +
 scale_x_discrete(limits=imps$var) + scale_fill_gradientn(colors=c('purple','red')) + labs(y="relative importance (%)",x="variable") +
 theme(axis.text.x = element_text(angle = 90, hjust = 1)) + guides(fill=FALSE)
 print(h)
-
-# Confusion matrices
-# this one is generated from the training set using out-of-bag samples
-model_rangerTuned$finalModel$confusion.matrix
-
-# This is the confusion matrix generated by applying the final model to the vaidation set
-rangerTunedpred<-predict(model_rangerTuned,newdata=slimval)
-confusionMatrix(data=rangerTunedpred,reference=slimval$classe)
 ```
 
-Random forests can estimate out of sample accuracy using out of bag samples. Each tree in the forest is trained using a bootstrapped resample of the training set, and so there are some observations in the training data that a given tree was not exposed to. These observations can be used to assess the tree's accuracy. The accuracy of the forest can be estimated by having it predict on the training set, but only obtaining predictions from trees which were not trained on the observation being predicted. This is the out-of-bag error rate.  The optimal model above has an out of bag error of 0.4%, or an accuracy of 99.6%. 
+The roll measurement from the belt sensor is the most significant in this model. The other belt rotation measures (pitch and yaw) are also quite important, as well as pitch and  roll of the forearm.
 
-confustion matrix from oob
-
-From the repeated k-fold cross-validation, model accuracy (at mtry=9) is estimated at 99.5% and $\kappa$ at 99.38%. These values are extremely good, which is nice. The accuracy is also consisted with the out-of-bag error rate.
-
-Validation set
-give similar performance, very good.
-validation confusion matrix, very similar to the OOB one
-
-Happy with this model
-Variable importance
-
-
+<!-- This model performs very well. Will quickly check to see if any performance gains can be made by preprocessing the data first. -->
 
 <!-- accuracy seems good, kappa very close to one, which is very good. (better than 0.4 is decent)
 compares observed accuracy to expected, whichis the accuracy expected from just random guessing (based on confusion matrix)
 
 Have a few ways of assessing error here. We did cross validation, which sould give us an idea of out of sample error. Random forests are a bootstrap method, and so we can get an out of bag error, which is "shown to be unbiased". Finally, we can partitioned of a validation set at the start, so we can use this. Generally cross validation is done when you want to use all data for training rather than reserving a subset for validation. Here we seem to have plenty of data, so no harm in saving some (indeed, our model performs very well). -->
 
-## Dimension Reduction/compression
+## Dimension Reduction/Compression
 
-Random forests can run into difficulties when there are a few important predictors hidden amongst a large number of variables. (because we only sample a subset of the predictors at each branch, so there is a small probability of getting a good variable). Try to reduce the number of variables by pca, see if this improves things. 
-First get an idea of how many components are needed to capture a certain amount of variance
+Random forests can run into difficulties when there are a few important predictors hidden amongst a large number of variables. (because we only sample a subset of the predictors at each branch, so there is a small probability of getting a good variable). Principal Components Analysis can be used to reduce the number of predictor variables, which may improve things. 
+
+### Number of Components
+First, get an idea of how many components are needed to capture a certain amount of variance
 
 ```{r pcaCheck, cache=TRUE, dependson='tidy'}
 set.seed(5074491)
@@ -244,9 +257,10 @@ preproc$numComp
 preproc<-preProcess(slimtr[-53],method='pca',thresh=0.85)
 preproc$numComp
 ```
+
 Will aim for 95% variance, so will keep 26 components. We want the preprocessing to be carried out by the `train` function, so that it is done seperately using only the data in each fold. Preprocessing the dataset first and then training may introduce bias, as in that case the data in each fold will have been transformed based on the overall variance of the entire dataset - the transformation would depend on data not contained in the fold. It is also important to give the `train` method the number of PCA components to be used, rather than the relative amount of variance to be captured. It's possible that a constant variance threshold could result in different folds being transformed into a different number of PCA components. The ratio of variables sampled by the tree (mtry) to the total number of variables could then differ between folds. In extreme cases, a fold could contain fewer variables than the specified value of mtry, which would result in caret/ranger throwing errors. 
 
-
+### Model Training
 ```{r rangerPCA, cache=TRUE, dependson='tidy'}
 set.seed(5074491)
 starttime<-Sys.time()
@@ -258,84 +272,23 @@ endtime - starttime
 ```
 
 Took a (relatively) long time for only 4 mtry values and a reduced number of predictors.
-rangerPCA stuff
 
+### Model Assessment
 ```{r rangerPCAstuff,cache=TRUE,dependson='rangerPCA' }
-ggplot(model_rangerPCA)
 model_rangerPCA
-model_rangerPCA$finalModel
-#confusionMatrix
+# model_rangerPCA$finalModel
 # confusionMatrix
-model_rangerPCA$finalModel$confusion.matrix
+# model_rangerPCA$finalModel$confusion.matrix
 rangerPCApred<-predict(model_rangerPCA,newdata=slimval,predict.all=TRUE)
-dim(rangerPCApred)
+# dim(rangerPCApred)
+# confusion matrix from vlidation set
 confusionMatrix(data=rangerPCApred,reference=slimval$classe)
-# summary(rangerPCApred)
-
-#ROC curve
-#result.roc <- roc(slimval$classe, rangerPCApred) # Draw ROC curve.
-#plot(result.roc, print.thres="best", print.thres.best.method="closest.topleft")
-
-
-
-# result.coords <- coords(result.roc, "best", best.method="closest.topleft", ret=c("threshold", "accuracy"))
-# print(result.coords)#to get threshold and accuracy
 ```
-doesnt perform super well. Also took a long time. Scalability. Will use the rangerTuned model above as our "final model".
 
+This model performs very well, but takes slightly longer to train and is slightly less accurate than the 'rangerTuned' model above. Will consider rangerTuned to be our "final" model, and will use it to predict on the test set.
 
-# TODO
-
-
-todo:
-
-    * add roc curves - maybe not. Can get the votes from the model prediction, but need to convert them to "probability"
-	  ** Not sure what pROC would want for this in a multiclass context
-	* add more words
-	* read esl bagging?
-
-
-# Model Assessment
-Random forests use a number (500) of different trees, each of which is derived from a bootstrap sample of the training data. An out of bag error estimate can be obtained by predicting observations in the training set, but only using the subset of trees in the forest in which the bootstrap sample did not contain the observation being predicted. In this way, the forest's prediction for the ith observation only depends on trees that were not trained to the ith observation. This is out of bag error.
-
-Cross validation also gives us an error rate. The training sample is divided up into 10 folds. Each fold uses 9/10ths of the data for training and the remaining 1/10 for validation/testing. The cross validated error rate is the average of the error rates for each fold. For repeated cv's, the k-fold cross validation is repeated 5 times (in this case). the 10 folds are generated independantly for each repeat.
-
-After the cross validation has been carried out, the final model is trained on the **full** training set using the best parameters found during the tuning process. 
-
-Also,we have the validation set that we held back. This is data that has not been seen at all in the training process. This should be good for estimating error, would trust this the most. Generally use cross validation in cases where can't afford to hold data back for a validation set. Using cross validation here, but figured theres plenty of data, so might as well make a validation set anyway. Our models seem very good, so don't think anything was hurt by not training on our validation data.
-
-What are kappa, etc? Kappa compares observed accuraccy to expected accuracy. Expected accuracy looks like correlation, except we are multiplying sums rather than summing products - which is equal to correlation if things are independant  $\langle a b \rangle = \langle a \rangle \langle b \rangle. So expected accuracy assumes no correlation, it's just random guessing.
-
-
-
-
-
-<!-- ## Plots
-
-exploratory - classe vs time correlation
-correlation heatmap
-
-models
-tuning parameters
-
-assessment
-ROC curve
-
-classProbs=TRUE in traincontrol
-think ROC isn't going to work easily.
-
-
-plot classe vs time
-plot variable correlation
-
-plot variable importance
-plot tuning (x2)
-
-Thus the AUC is equivalent to the probability that a randomly chosen member of class 1 will have a smaller estimated probability of belonging to class 0 than a randomly chosen member of class 0 -->
-
-
-## Test predictions
-load the data
+# Test Predictions
+First, load the test data. This is slimmed in the same way the training data was (the same columns are removed).
 
 ```{r loadtest,cache=TRUE,dependson='rangerTuned'}
 testing<-read.csv('./data/pml-testing.csv',stringsAsFactors=TRUE,na.strings = c("#DIV/0!","NA"))
@@ -346,14 +299,15 @@ testing$cvtd_timestamp<-strptime(testing$cvtd_timestamp,format = "%d/%m/%Y %H:%M
 # classe is the last variable in "good", the list of variables without missing values from the "loaddata" chunk above
 slimtest<-testing[ good[-length(good)]]
 slimtest<-slimtest[,-(1:7)]
-str(slimtest)
-
+#str(slimtest)
+```
+```{r performtest,cache=TRUE,dependson='loadtest'}
 testPred<-predict(model_rangerTuned,newdata=slimtest)
 results<-data.frame(case=seq_along(testPred),prediction=testPred)
 #results
-
 ```
-Test results are all good, according to the quiz. My prediction outputs are suppressed here as showing them may violate the coursera honour code.
+
+Test results are all good, according to the quiz. Prediction outputs are not shown here, as sharing them may be against coursera's honour code/plagairism policy.
 
 
 
